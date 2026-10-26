@@ -1,0 +1,27 @@
+{
+  "name": "multi-container-service-deployment",
+  "version": "1.0.0",
+  "description": "https://github.com/connect2sazad/multi-container-service-deployment",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/connect2sazad/multi-container-service-deployment.git"
+  },
+  "author": "Sazad Ahemad",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/connect2sazad/multi-container-service-deployment/issues"
+  },
+  "homepage": "https://github.com/connect2sazad/multi-container-service-deployment#readme",
+  "dependencies": {
+    "dotenv": "^18.0.8",
+    "express": "^5.3.0",
+    "mongodb": "^7.7.0",
+    "nodemon": "^3.1.14"
+  }
+}
