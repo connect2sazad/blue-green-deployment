@@ -14,7 +14,8 @@ router.get('/', async (req, res, next) => {
             health: 'Healthy',
             success: true,
             status: 0,
-            database: 'connected'
+            database: 'connected',
+            version: process.env.APP_VERSION || 'unknown',
         });
     } catch (error) {
         res.status(503).json({
@@ -22,6 +23,7 @@ router.get('/', async (req, res, next) => {
             success: false,
             status: 1,
             database: 'disconnected',
+            version: process.env.APP_VERSION || 'unknown',
         });
     }
 });
