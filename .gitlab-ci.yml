@@ -31,7 +31,7 @@ deployment:
           cd /home/ubuntu/blue-green-deployment
 
           echo "Updating the application source..."
-          git pull --ff-only origin main
+          git pull --ff-only origin master
 
           chmod +x make_env.bash
           ./make_env.bash
