@@ -1,0 +1,42 @@
+stages:
+  - deploy
+
+deployment:
+  stage: deploy
+  image: alpine:latest
+
+  resource_group: production
+  interruptible: false
+
+  rules:
+    - if '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+  before_script:
+    - apk add --no-cache openssh-client
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - cp "$EC2_KNOWN_HOSTS" ~/.ssh/known_hosts
+    - chmod 600 ~/.ssh/known_hosts
+    - chmod 600 "$EC2_SSH_PRIVATE_KEY"
+  
+  script:
+    - |
+        ssh \
+          -i "$EC2_SSH_PRIVATE_KEY" \
+          -o StrictHostKeyChecking=yes \
+          "$EC2_USER@$EC2_HOST" 'bash -s' <<'REMOTE'
+          
+          set -eu
+          
+          cd /home/ubuntu/blue-green-deployment
+
+          echo "Updating the application source..."
+          git pull --ff-only origin main
+
+          chmod +x make_env.bash
+          ./make_env.bash
+
+          python3 switch-color.py
+          
+          echo "Blue-green deployment completed successfully."
+          REMOTE
