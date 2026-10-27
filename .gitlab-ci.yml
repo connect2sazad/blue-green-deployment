@@ -23,7 +23,7 @@ deployment:
     - |
         ssh \
           -i "$EC2_SSH_PRIVATE_KEY" \
-          -o StrictHostKeyChecking=yes \
+          -o StrictHostKeyChecking=no \
           "$EC2_USER@$EC2_HOST" 'bash -s' <<'REMOTE'
           
           set -eu
