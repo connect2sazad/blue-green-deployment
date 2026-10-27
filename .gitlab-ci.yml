@@ -9,7 +9,7 @@ deployment:
   interruptible: false
 
   rules:
-    - if '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
 
   before_script:
     - apk add --no-cache openssh-client
