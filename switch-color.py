@@ -453,10 +453,10 @@ def deploy(version):
         duration = time.monotonic() - start_time
 
         # Report the version only if it can be verified.
-        active_version = None
 
         try:
-            active_version = detect_current_version()
+            current_version = detect_current_version()
+            active_version = 1 if current_version == "green" else 0 if current_version == "blue" else -1
         except Exception:
             warning(
                 "Active version is unknown; preserving "
