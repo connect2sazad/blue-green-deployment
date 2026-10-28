@@ -107,7 +107,7 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
     ports:
-      - "9090:9090"
+      - "0.0.0.0:9090:9090"
     restart: unless-stopped
 
   grafana:
@@ -119,7 +119,7 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
     ports:
-      - "3000:3000"
+      - "0.0.0.0:3000:3000"
     restart: unless-stopped
 
   node-exporter:
