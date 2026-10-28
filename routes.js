@@ -15,7 +15,7 @@ router.get('/', async (req, res, next) => {
             success: true,
             status: 0,
             database: 'connected',
-            ci_test: 'testing',
+            ci_test: 'testing #2',
             version: process.env.APP_VERSION || 'unknown',
         });
     } catch (error) {

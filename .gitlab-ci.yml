@@ -1,3 +1,9 @@
+default:
+  tags:
+    - aws-runner
+    - docker
+    - self-hosted
+
 stages:
   - deploy
 
@@ -23,7 +29,7 @@ deployment:
     - |
         ssh \
           -i "$EC2_SSH_PRIVATE_KEY" \
-          -o StrictHostKeyChecking=no \
+          -o StrictHostKeyChecking=yes \
           "$EC2_USER@$EC2_HOST" 'bash -s' <<'REMOTE'
           
           set -eu

@@ -1,6 +1,7 @@
 services:
   app-blue:
     image: todos-app:blue
+    container_name: app-blue
     build:
       context: .
       dockerfile: Dockerfile
@@ -28,6 +29,7 @@ services:
 
   app-green:
     image: todos-app:green
+    container_name: app-green
     build:
       context: .
       dockerfile: Dockerfile

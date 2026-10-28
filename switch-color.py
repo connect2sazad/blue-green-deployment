@@ -391,6 +391,27 @@ def detect_current_version():
         ) from err
 
 # =========================
+# Prepare New Deployment Version
+# =========================
+def prepare_new_version(target_version):
+    """Rebuild and start only the target application and its dependencies."""
+
+    service = SERVICES[target_version]
+
+    heading(f"PREPARING {target_version.upper()} DEPLOYMENT")
+
+    info(f"Building and starting {service}...")
+
+    run_command([
+        "docker", "compose",
+        "up", "-d",
+        "--build",
+        service
+    ])
+
+    success(f"{service} has been started.")
+
+# =========================
 # Auto-Switch Deployment Version
 # =========================
 def auto_switch():
@@ -400,10 +421,12 @@ def auto_switch():
         "green" if current_version == "blue" else "blue"
     )
 
+
     heading("AUTOMATIC BLUE-GREEN DEPLOYMENT")
     info(f"Current version: {current_version}")
     info(f"Target version: {target_version}")
 
+    prepare_new_version(target_version)
     deploy(target_version)
 
 # =========================
