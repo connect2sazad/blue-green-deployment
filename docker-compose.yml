@@ -145,7 +145,20 @@ services:
       - /dev/disk:/dev/disk:ro
     restart: unless-stopped
 
+  metrics-exporter:
+    image: python:3.12-slim
+    container_name: metrics-exporter
+    working_dir: /app
+    command: ["python", "-u", "metrics-exporter.py"]
+    ports:
+      - "0.0.0.0:9101:9101"
+    volumes:
+      - ./metrics-exporter.py:/app/metrics-exporter.py:ro
+      - deployment-metrics-data:/data
+    restart: unless-stopped
+
 volumes:
   mongo_data:
   prometheus_data:
   grafana_data:
+  deployment-metrics-data:

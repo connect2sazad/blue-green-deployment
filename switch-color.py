@@ -1,9 +1,27 @@
+
 import json
 import subprocess
 import sys
 import time
 from pathlib import Path
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
+
+
+# =========================
+# Configuration
+# =========================
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+ACTIVE_CONFIG = PROJECT_ROOT / "nginx" / "active.conf"
+
+APP_PORT = 555
+APP_URL = "http://127.0.0.1"
+METRICS_URL = "http://127.0.0.1:9101/record"
+
+SERVICES = {
+    "blue": "app-blue",
+    "green": "app-green",
+}
 
 
 # =========================
@@ -21,22 +39,6 @@ class Colors:
     CYAN = "\033[96m"
     MAGENTA = "\033[95m"
     GRAY = "\033[90m"
-
-
-# =========================
-# Configuration
-# =========================
-
-PROJECT_ROOT = Path(__file__).resolve().parent
-ACTIVE_CONFIG = PROJECT_ROOT / "nginx" / "active.conf"
-
-APP_PORT = 555
-APP_URL = "http://127.0.0.1"
-
-SERVICES = {
-    "blue": "app-blue",
-    "green": "app-green",
-}
 
 
 # =========================
@@ -67,6 +69,48 @@ def heading(message):
         f"{'=' * 50}"
         f"{Colors.RESET}"
     )
+
+
+# =========================
+# Deployment Metrics
+# =========================
+
+def record_deployment_metrics(
+    version,
+    result,
+    duration_seconds,
+    active_version=None,
+    rollback_result=None,
+):
+    """Send a deployment event to the persistent metrics exporter."""
+
+    payload = {
+        "version": version,
+        "result": result,
+        "duration_seconds": duration_seconds,
+        "active_version": active_version,
+        "rollback_result": rollback_result,
+    }
+
+    request = Request(
+        METRICS_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=2) as response:
+            if response.status != 204:
+                warning(
+                    "Metrics exporter returned an unexpected status."
+                )
+
+        success("Deployment metrics recorded.")
+
+    except Exception as err:
+        # A metrics outage must not change the deployment result.
+        warning(f"Could not record deployment metrics: {err}")
 
 
 # =========================
@@ -118,7 +162,7 @@ def run_command(args, check=True):
 # =========================
 
 def check_target_health(service):
-    """Check the target application directly inside its container."""
+    """Check the target application from inside its container."""
 
     heading(f"HEALTH CHECK: {service}")
 
@@ -161,7 +205,9 @@ def check_target_health(service):
 def verify_live_version(expected_version):
     """Verify the version served through Nginx."""
 
-    heading(f"VERIFYING LIVE VERSION: {expected_version.upper()}")
+    heading(
+        f"VERIFYING LIVE VERSION: {expected_version.upper()}"
+    )
 
     for attempt in range(1, 11):
         try:
@@ -188,9 +234,7 @@ def verify_live_version(expected_version):
 
         time.sleep(1)
 
-    raise RuntimeError(
-        "Live version verification failed."
-    )
+    raise RuntimeError("Live version verification failed.")
 
 
 # =========================
@@ -229,7 +273,7 @@ def write_active_config(version):
 # =========================
 
 def validate_and_reload_nginx():
-    """Validate configuration before reloading Nginx."""
+    """Validate configuration and apply the Nginx changes."""
 
     heading("VALIDATING NGINX CONFIGURATION")
 
@@ -250,7 +294,7 @@ def validate_and_reload_nginx():
         "nginx",
     ])
 
-    success("Nginx reload command completed.")
+    success("Nginx configuration applied.")
 
 
 # =========================
@@ -262,10 +306,16 @@ def rollback(previous_config):
 
     heading("ROLLBACK STARTED")
 
-    ACTIVE_CONFIG.write_text(
+    temporary_file = ACTIVE_CONFIG.with_name(
+        "active.conf.rollback"
+    )
+
+    temporary_file.write_text(
         previous_config,
         encoding="utf-8",
     )
+
+    temporary_file.replace(ACTIVE_CONFIG)
 
     validate_and_reload_nginx()
 
@@ -273,27 +323,52 @@ def rollback(previous_config):
 
 
 # =========================
+# Detect Current Version
+# =========================
+
+def detect_current_version():
+    """Detect the currently served version through Nginx."""
+
+    try:
+        with urlopen(APP_URL + "/", timeout=3) as response:
+            payload = json.loads(
+                response.read().decode("utf-8")
+            )
+
+        actual_version = payload.get("version")
+
+        if actual_version not in SERVICES:
+            raise RuntimeError(
+                f"Unknown active application version: "
+                f"{actual_version}"
+            )
+
+        return actual_version
+
+    except Exception as err:
+        warning(f"Could not detect active version: {err}")
+
+        raise RuntimeError(
+            "Cannot safely determine the current deployment."
+        ) from err
+
+
+# =========================
 # Blue-Green Deployment
 # =========================
 
 def deploy(version):
-    """Deploy the requested blue or green application."""
+    """Deploy a version and record the outcome and duration."""
 
     if version not in SERVICES:
-        raise ValueError(
-            "Choose either: blue or green."
-        )
+        raise ValueError("Choose either: blue or green.")
 
-    if not ACTIVE_CONFIG.exists():
-        raise FileNotFoundError(
-            f"Missing Nginx config: {ACTIVE_CONFIG}"
-        )
+    start_time = time.monotonic()
 
-    previous_config = ACTIVE_CONFIG.read_text(
-        encoding="utf-8"
-    )
-
+    deployment_result = "failure"
+    rollback_result = None
     config_changed = False
+    previous_config = None
 
     heading(f"STARTING {version.upper()} DEPLOYMENT")
 
@@ -301,7 +376,16 @@ def deploy(version):
     info(f"Application port: {APP_PORT}")
 
     try:
-        # Step 1: Check Docker Compose service status.
+        if not ACTIVE_CONFIG.exists():
+            raise FileNotFoundError(
+                f"Missing Nginx config: {ACTIVE_CONFIG}"
+            )
+
+        previous_config = ACTIVE_CONFIG.read_text(
+            encoding="utf-8"
+        )
+
+        # Step 1: Check Docker service status.
         heading("STEP 1: CHECKING DOCKER SERVICE")
 
         run_command([
@@ -311,18 +395,18 @@ def deploy(version):
 
         success("Docker Compose service checked.")
 
-        # Step 2: Verify application health.
+        # Step 2: Check target application health.
         heading("STEP 2: CHECKING APPLICATION HEALTH")
 
         check_target_health(SERVICES[version])
 
-        # Step 3: Update Nginx routing configuration.
+        # Step 3: Switch Nginx routing.
         heading("STEP 3: SWITCHING TRAFFIC")
 
         write_active_config(version)
         config_changed = True
 
-        # Step 4: Validate configuration and reload Nginx.
+        # Step 4: Validate and apply configuration.
         heading("STEP 4: APPLYING NGINX CONFIGURATION")
 
         validate_and_reload_nginx()
@@ -332,7 +416,8 @@ def deploy(version):
 
         verify_live_version(version)
 
-        # Deployment completed successfully.
+        deployment_result = "success"
+
         print(
             f"\n{Colors.GREEN}{Colors.BOLD}"
             f"{'=' * 50}\n"
@@ -349,11 +434,14 @@ def deploy(version):
             f"{Colors.RESET}"
         )
 
-        if config_changed:
+        if config_changed and previous_config is not None:
             try:
                 rollback(previous_config)
+                rollback_result = "success"
 
             except Exception as rollback_err:
+                rollback_result = "failure"
+
                 error(f"ROLLBACK ERROR: {rollback_err}")
 
                 warning(
@@ -361,40 +449,38 @@ def deploy(version):
                     "manually."
                 )
 
+    finally:
+        duration = time.monotonic() - start_time
+
+        # Report the version only if it can be verified.
+        active_version = None
+
+        try:
+            active_version = detect_current_version()
+        except Exception:
+            warning(
+                "Active version is unknown; preserving "
+                "the previous exporter gauge."
+            )
+
+        record_deployment_metrics(
+            version=version,
+            result=deployment_result,
+            duration_seconds=duration,
+            active_version=active_version,
+            rollback_result=rollback_result,
+        )
+
+    if deployment_result == "failure":
         sys.exit(1)
 
-# =========================
-# Detect Current Version
-# =========================
-def detect_current_version():
-
-    try:
-
-        with urlopen(APP_URL + "/", timeout=3) as response:
-            payload = json.loads(
-                response.read().decode("utf-8")
-            )
-    
-        actual_version = payload.get("version")
-
-        if actual_version not in SERVICES:
-            raise RuntimeError(
-                f"Unknown active application version: {actual_version}"
-            )
-        
-        return actual_version
-
-    except Exception as err:
-        warning(f"Could not detect active version: {err}")
-        raise RuntimeError(
-            "Cannot safely determine the current deployment."
-        ) from err
 
 # =========================
 # Prepare New Deployment Version
 # =========================
+
 def prepare_new_version(target_version):
-    """Rebuild and start only the target application and its dependencies."""
+    """Build and start the target application."""
 
     service = SERVICES[target_version]
 
@@ -406,52 +492,61 @@ def prepare_new_version(target_version):
         "docker", "compose",
         "up", "-d",
         "--build",
-        service
+        service,
     ])
 
     success(f"{service} has been started.")
 
+
 # =========================
 # Auto-Switch Deployment Version
 # =========================
+
 def auto_switch():
+    """Detect the active version and deploy the other version."""
+
     current_version = detect_current_version()
 
     target_version = (
         "green" if current_version == "blue" else "blue"
     )
 
-
     heading("AUTOMATIC BLUE-GREEN DEPLOYMENT")
+
     info(f"Current version: {current_version}")
     info(f"Target version: {target_version}")
 
     prepare_new_version(target_version)
     deploy(target_version)
 
+
 # =========================
 # Main Entry Point
 # =========================
 
 if __name__ == "__main__":
-    # if len(sys.argv) != 2:
-    #     print(
-    #         f"{Colors.YELLOW}"
-    #         "Usage: python deploy.py blue|green|auto"
-    #         f"{Colors.RESET}"
-    #     )
-    #     sys.exit(2)
-
     try:
         if len(sys.argv) == 1:
             auto_switch()
+
         elif len(sys.argv) == 2:
             version = sys.argv[1].lower()
-            deploy(version)
+
+            if version == "auto":
+                auto_switch()
+            else:
+                deploy(version)
+
         else:
-            error("Usage: python3 switch-color.py [blue|green]")
+            error(
+                "Usage: python3 switch-color.py [blue|green|auto]"
+            )
             sys.exit(2)
 
     except (ValueError, FileNotFoundError) as err:
         error(str(err))
+        sys.exit(1)
+
+    except Exception as err:
+        error(f"DEPLOYMENT ERROR: {err}")
         sys.exit(1)
