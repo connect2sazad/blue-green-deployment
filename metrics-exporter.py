@@ -8,7 +8,7 @@ from pathlib import Path
 HOST = "0.0.0.0"
 PORT = 9101
 STATE_FILE = Path(os.getenv("METRICS_STATE_FILE", "/data/metrics.json"))
-LOCK = threading.lock()
+LOCK = threading.Lock()
 
 BUCKETS = [0.1, 1, 5, 10, 30, 60, 120, 300]
 
